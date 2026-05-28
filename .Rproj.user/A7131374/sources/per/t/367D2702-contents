@@ -1,0 +1,238 @@
+---
+title: "Valor Adicionado de São Paulo"
+author: "Camila Reis"
+format: html
+editor: visual
+---
+
+# Introdução
+
+Este trabalho tem como objetivo analisar a participação dos setores econômicos nos municípios do estado de São Paulo no ano de 2021, utilizando dados do SIDRA/IBGE e ferramentas de análise no software RStudio. A pesquisa busca compreender como os setores da agropecuária, indústria e serviços contribuem para a formação do Valor Adicionado municipal, permitindo observar as diferenças econômicas entre os municípios paulistas.
+
+Para o desenvolvimento da análise, foram utilizados pacotes estatísticos e geográficos do R, possibilitando a coleta, organização e visualização dos dados em mapas e tabelas. A utilização de representações cartográficas facilita a interpretação espacial das informações econômicas, permitindo identificar quais atividades possuem maior relevância em determinadas regiões do estado.
+
+Além disso, o trabalho apresenta uma análise descritiva dos resultados encontrados, destacando a importância do setor de serviços na economia paulista, bem como a presença da indústria em regiões mais urbanizadas e da agropecuária em municípios do interior. Dessa forma, o estudo contribui para a compreensão da dinâmica econômica regional e da distribuição das atividades produtivas no estado de São Paulo.
+
+# Pacotes Utilizados
+
+Os pacotes utilizados foram fundamentais para a coleta, tratamento e visualização dos dados. O pacote `sidrar` foi utilizado para acessar diretamente as bases do SIDRA/IBGE. Já os pacotes `tidyverse` e `dplyr` auxiliaram na manipulação e organização das informações. O pacote `geobr` permitiu obter os mapas municipais do estado de São Paulo, enquanto o `sf` foi utilizado para trabalhar com dados espaciais. O pacote `patchwork` possibilitou a união dos mapas em uma única visualização comparativa, e o `DT` auxiliou na criação de tabelas interativas.
+
+```{r message=FALSE,warning=FALSE}
+library(sidrar)
+library(tidyverse)
+library(geobr)
+library(sf)
+library(patchwork)
+library(DT)
+```
+
+# Coleta de Dados
+
+Os dados utilizados neste trabalho foram extraídos do SIDRA/IBGE, considerando o ano de 2021 e os municípios do estado de São Paulo. Foram coletadas informações referentes ao Valor Adicionado total e aos setores de agropecuária, indústria e serviços. Após a coleta, os dados passaram por processos de organização e junção das bases, permitindo calcular a participação percentual de cada setor na economia municipal.
+
+```{r message=FALSE,warning=FALSE}
+
+va <- get_sidra(
+  x        = 5938,
+  variable = 498,
+  period   = "2021",
+  geo      = "City",
+  geo.filter = list("State" = 35)
+) |>
+  select(Município, `Município (Código)`, Valor) |>
+  rename(va = Valor, code_muni = `Município (Código)`, MUN = Município) |>
+  mutate(code_muni = as.double(code_muni))
+
+agro <- get_sidra(
+  x        = 5938,
+  variable = 513,
+  period   = "2021",
+  geo      = "City",
+  geo.filter = list("State" = 35)
+) |>
+  select(Município, `Município (Código)`, Valor) |>
+  rename(va_agro = Valor, code_muni = `Município (Código)`, MUN = Município) |>
+  mutate(code_muni = as.double(code_muni))
+
+
+ind <- get_sidra(
+  x        = 5938,
+  variable = 517,
+  period   = "2021",
+  geo      = "City",
+  geo.filter = list("State" = 35)
+) |>
+  select(Município, `Município (Código)`, Valor) |>
+  rename(va_ind = Valor, code_muni = `Município (Código)`, MUN = Município) |>
+  mutate(code_muni = as.double(code_muni))
+
+serv1 <- get_sidra(
+  x        = 5938,
+  variable = 6575,
+  period   = "2021",
+  geo      = "City",
+  geo.filter = list("State" = 35)
+) |>
+  select(Município, `Município (Código)`, Valor) |>
+  rename(va_serv1 = Valor, code_muni = `Município (Código)`, MUN = Município) |>
+  mutate(code_muni = as.double(code_muni))
+
+serv2 <- get_sidra(
+  x        = 5938,
+  variable = 525,
+  period   = "2021",
+  geo      = "City",
+  geo.filter = list("State" = 35)
+) |>
+  select(Município, `Município (Código)`, Valor) |>
+  rename(va_serv2 = Valor, code_muni = `Município (Código)`, MUN = Município) |>
+  mutate(code_muni = as.double(code_muni))
+
+serv <- inner_join(serv1, serv2, by = c("code_muni", "MUN")) |>
+  mutate(va_serv = va_serv1 + va_serv2) |>
+  select(code_muni, MUN, va_serv )
+
+rm(serv1, serv2)
+
+participacao <- va |>
+  inner_join(agro, by = c("code_muni", "MUN")) |>
+  inner_join(ind,  c("code_muni", "MUN")) |>
+  inner_join(serv, c("code_muni", "MUN")) |>
+  mutate(
+    part_agro = va_agro / va,
+    part_ind  = va_ind  / va,
+    part_serv = va_serv / va
+  ) |>
+  select(code_muni, MUN, part_agro, part_ind, part_serv)
+```
+
+# Construção do Mapa
+
+A construção dos mapas temáticos foi realizada com o objetivo de representar visualmente a participação dos setores econômicos nos municípios paulistas. Foram criados mapas específicos para agropecuária, indústria e serviços, utilizando diferentes escalas de cores para facilitar a interpretação dos dados. Essa representação espacial permite identificar padrões econômicos regionais e diferenças entre os municípios do estado.
+
+```{r message=FALSE,warning=FALSE}
+
+sp_muni <- read_municipality(code_muni = 35, year = 2020)
+
+sp_map <- sp_muni |>left_join(participacao, by = "code_muni")
+
+m1 <- ggplot(sp_map, aes(fill = part_agro)) +
+  geom_sf() +
+  scale_fill_distiller(palette = "Greens", direction = 1, labels = scales::percent) +
+  labs(title = "Agropecuária", fill = NULL) +
+  theme_void()
+
+m2 <- ggplot(sp_map, aes(fill = part_ind)) +
+  geom_sf() +
+  scale_fill_distiller(palette = "Blues", direction = 1, labels = scales::percent) +
+  labs(title = "Indústria", fill = NULL) +
+  theme_void()
+
+m3 <- ggplot(sp_map, aes(fill = part_serv)) +
+  geom_sf() +
+  scale_fill_distiller(palette = "Oranges", direction = 1, labels = scales::percent) +
+  labs(title = "Serviços", fill = NULL) +
+  theme_void()
+
+m1 + m2 + m3 +
+  plot_annotation(title = "Participação setorial no Valor Adicionado — São Paulo (2021)", caption = "Fonte: SIDRA/IBGE  |  Elaboração: Camila Reis   -UFPI" 
+  ) 
+```
+
+# Tabela Municipios 
+
+```{r message=FALSE,warning=FALSE}
+participacao |>
+  mutate(
+    part_agro = scales::percent(part_agro, accuracy = 0.1),
+    part_ind  = scales::percent(part_ind,  accuracy = 0.1),
+    part_serv = scales::percent(part_serv, accuracy = 0.1)
+  ) |>
+  select(
+    Município = MUN,
+    Agropecuária = part_agro,
+    Indústria = part_ind,
+    Serviços = part_serv
+  ) |>
+  knitr::kable(
+    caption = "Participação setorial no Valor Adicionado dos municípios de São Paulo — 2021"
+  )
+```
+
+```{r message=FALSE,warning=FALSE}
+
+participacao |>
+  mutate(
+    part_agro = scales::percent(part_agro, accuracy = 0.1),
+    part_ind  = scales::percent(part_ind,  accuracy = 0.1),
+    part_serv = scales::percent(part_serv, accuracy = 0.1)
+  ) |>
+  select(
+    Município = MUN,
+    Agropecuária = part_agro,
+    Indústria = part_ind,
+    Serviços = part_serv
+  ) |>
+  datatable(
+    caption = "Participação setorial no Valor Adicionado dos municípios de São Paulo — 2021",
+    rownames = FALSE,
+    filter = "top",
+    options = list(
+      pageLength = 10,
+      language = list(url = "//cdn.datatables.net/plug-ins/1.13.6/i18n/pt-BR.json")
+     )
+  )
+```
+
+
+# Grafico 
+
+O gráfico abaixo apresenta a participação média dos setores de agropecuária, indústria e serviços nos municípios do estado de São Paulo em 2021. Essa visualização permite comparar de forma objetiva a relevância relativa de cada setor na economia paulista.
+
+
+```{r message=FALSE,warning=FALSE}
+
+media_setores <- participacao |>
+  summarise(
+    Agropecuária = mean(part_agro, na.rm = TRUE),
+    Indústria    = mean(part_ind,  na.rm = TRUE),
+    Serviços     = mean(part_serv, na.rm = TRUE)
+  ) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "Setor",
+    values_to = "Participacao"
+  )
+
+ggplot(media_setores,
+       aes(x = Setor,
+           y = Participacao,
+           fill = Setor)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Participação média dos setores econômicos nos municípios de São Paulo (2021)",
+    x = NULL,
+    y = "Participação Média"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+
+```
+
+
+# Análise dos Resultados
+
+A análise dos resultados demonstra que o setor de serviços possui maior participação na economia da maioria dos municípios paulistas, refletindo a forte urbanização e concentração das atividades comerciais e administrativas no estado. O setor industrial apresenta destaque em municípios mais desenvolvidos economicamente, enquanto a agropecuária possui maior relevância em regiões interioranas, onde predominam atividades agrícolas e pecuárias.
+
+Os mapas e tabelas apresentados permitem observar como a economia paulista é diversificada, evidenciando diferenças regionais importantes na composição do Valor Adicionado. Essas informações contribuem para estudos econômicos e para a compreensão da dinâmica produtiva dos municípios.
+
+# Conclusão
+
+Conclui-se que a análise da participação setorial no Valor Adicionado dos municípios de São Paulo possibilita compreender melhor a estrutura econômica regional do estado. A utilização de ferramentas estatísticas e geográficas no RStudio mostrou-se eficiente para a coleta, organização e visualização dos dados econômicos.
+
+O estudo evidencia a predominância do setor de serviços na economia paulista, sem deixar de destacar a importância da indústria e da agropecuária em diferentes regiões do estado. Dessa forma, o trabalho contribui para análises econômicas regionais e demonstra a relevância do uso de dados públicos e técnicas de visualização para pesquisas acadêmicas.
+
